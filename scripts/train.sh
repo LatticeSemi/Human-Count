@@ -5,7 +5,9 @@ export NET="squeezeDet"
 export TRAIN_DIR="./logs/humancnt/"
 export IMAGE_SET="train"
 
-export TRAIN_DATA_DIR="./data/humancnt"
+export TRAIN_DATA_DIR="/home/shubhamjoshi/Human-Count/gcp_dataset/"
+export BUCKET_NAME="softnautics_dataset_bucket"
+export BUCKET_DATA_PATH="kitti/"
 
 if [ $# -eq 0 ]
 then
@@ -74,8 +76,11 @@ esac
 
 python3 ./src/train.py \
   --dataset=KITTI \
+  --bucket_name=$BUCKET_NAME \
   --pretrained_model_path=$PRETRAINED_MODEL_PATH \
   --data_path=$TRAIN_DATA_DIR \
+  --bucket_data_path=$BUCKET_DATA_PATH \
+  --gcp=True \
   --image_set=$IMAGE_SET \
   --train_dir="$TRAIN_DIR/train" \
   --net=$NET \

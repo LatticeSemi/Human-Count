@@ -6,3 +6,5 @@ pillow
 scikit-video
 matplotlib
 ipywidgets
+boto3
+google-cloud-storage
