@@ -21,7 +21,7 @@ class kitti_gcp(imdb):
     self._label_path = [os.path.join(path, 'training', 'labels') for path in self._data_root_path]
     self._classes = self.mc.CLASS_NAMES
     print(dataset_path)
-    json_path = glob(dataset_path+"**.json")[0]
+    json_path = glob(dataset_path+"/**.json")[0]
     self._class_to_idx = dict(zip(self.classes, range(self.num_classes)))
     self.initialize_gcp(json_path,bucket_name)
     # a list of string indices of images in the directory
@@ -228,7 +228,7 @@ class kitti_gcp(imdb):
     for root_file,label_path,set_file in zip(self._image_path,self._label_path,image_set_file):
         text = self.download_txt(set_file)
         
-        idx.extend(text.split()[:100]) 
+        
         image_idx.extend([os.path.join(root_file,x+'.jpg') for x in idx])
         label_idx.extend([os.path.join(label_path,x+'.txt') for x in idx])
         
