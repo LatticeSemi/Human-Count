@@ -18,7 +18,7 @@ import tensorflow as tf
 import threading
 
 from config import *
-from dataset import pascal_voc, kitti,kitti_gcp
+from dataset import pascal_voc, kitti,kitti_gcp,kitti_aws
 from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
 from nets import *
 
@@ -31,6 +31,8 @@ tf.app.flags.DEFINE_string('bucket_name', '',
 tf.app.flags.DEFINE_string('bucket_data_path', '',
                            """Dataset path inside the bucket for aws gcp""")
 tf.app.flags.DEFINE_bool('gcp', False,
+                           """Use gcp dataset""")
+tf.app.flags.DEFINE_bool('aws', False,
                            """Use gcp dataset""")
 tf.app.flags.DEFINE_string('data_path', '', """Root directory of data""")
 tf.app.flags.DEFINE_string('image_set', 'train',
@@ -142,6 +144,8 @@ def train():
             model = SqueezeDetPlus(mc)
         if FLAGS.gcp==True:
             imdb = kitti_gcp(FLAGS.image_set,FLAGS.bucket_name,FLAGS.bucket_data_path,FLAGS.data_path,mc)
+        elif FLAGS.aws==True:
+            imdb=kitti_aws(FLAGS.image_set,FLAGS.bucket_name,FLAGS.bucket_data_path,FLAGS.data_path,mc)
         else:
             imdb = kitti(FLAGS.image_set, FLAGS.data_path, mc)
 
