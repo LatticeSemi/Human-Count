@@ -15,13 +15,17 @@ import tqdm
 class kitti_gcp(imdb):
   def __init__(self, image_set,bucket_name,bucket_data_path,dataset_path, mc):
     imdb.__init__(self, 'kitti_'+image_set, mc)
+    if bucket_data_path[-1]!='/':
+        bucket_data_path = bucket_data_path+'/'
+    if dataset_path[-1]!='/':
+        dataset_path = dataset_path+'/'
     self._image_set = image_set
     self._data_root_path = [bucket_data_path]
     self._image_path = [os.path.join(path, 'training', 'images') for path in self._data_root_path]
     self._label_path = [os.path.join(path, 'training', 'labels') for path in self._data_root_path]
     self._classes = self.mc.CLASS_NAMES
     print(dataset_path)
-    json_path = glob(dataset_path+"/**.json")[0]
+    json_path = glob(dataset_path+"**.json")[0]
     self._class_to_idx = dict(zip(self.classes, range(self.num_classes)))
     self.initialize_gcp(json_path,bucket_name)
     # a list of string indices of images in the directory

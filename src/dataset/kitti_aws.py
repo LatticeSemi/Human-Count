@@ -14,7 +14,11 @@ from config import *
 from glob import glob
 class kitti_aws(imdb):
   def __init__(self, image_set,bucket_name,bucket_data_path,data_path, mc):
-    txt_path = glob(data_path+"/**.txt")[0]
+    if data_path[-1]!='/':
+        data_path = data_path+'/'
+    if bucket_data_path[-1]!='/':
+        bucket_data_path = bucket_data_path+'/'
+    txt_path = glob(data_path+"**.txt")[0]
     os.environ["AWS_SHARED_CREDENTIALS_FILE"] = txt_path
     imdb.__init__(self, 'kitti_'+image_set, mc)
     self._image_set = image_set
