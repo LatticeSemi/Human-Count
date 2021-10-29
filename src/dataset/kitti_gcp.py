@@ -15,8 +15,8 @@ import tqdm
 class kitti_gcp(imdb):
   def __init__(self, image_set,bucket_name,bucket_data_path,dataset_path, mc):
     imdb.__init__(self, 'kitti_'+image_set, mc)
-    if bucket_data_path[-1]!='/':
-        bucket_data_path = bucket_data_path+'/'
+    if bucket_data_path[-1]=='/':
+        bucket_data_path = bucket_data_path[:-1]
     if dataset_path[-1]!='/':
         dataset_path = dataset_path+'/'
     self._image_set = image_set
