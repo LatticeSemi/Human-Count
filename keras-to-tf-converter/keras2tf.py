@@ -64,7 +64,11 @@ def convert(output_model_file, weight_file_path=r'./../../../../networks/Keras_O
                                                                "FixedDropout": FixedDropout,
                                                                "MyInitializer": MyInitializer,
                                                                "MyRegularizer": MyRegularizer,
-                                                               "MyConstraints": MyConstraints})
+                                                               "MyConstraints": MyConstraints,
+                                                               "tf": tf})
+        
+        net_model = tf.keras.Model(inputs=[net_model.input], outputs=[net_model.get_layer("E_dense").output])
+        print(net_model.summary())
         dataConfigureStr = 'data_format'
         dataFormatType = 'channels_last'
         if len(net_model.layers) > 0 and dataConfigureStr in net_model.layers[0].get_config():
@@ -79,7 +83,6 @@ def convert(output_model_file, weight_file_path=r'./../../../../networks/Keras_O
         output_node_prefix = 'output_node'
         pred = [None] * num_output
         pred_node_names = [None] * num_output
-        print("*"*100,net_model.input.name.split(":")[0])
         for i in range(num_output):
             pred_node_names[i] = output_node_prefix + str(i)
             pred[i] = tf.identity(net_model.outputs[i], name=pred_node_names[i])
@@ -100,7 +103,7 @@ def convert(output_model_file, weight_file_path=r'./../../../../networks/Keras_O
 
         output_fld = os.path.abspath(os.path.dirname(output_model_file))
         tf.io.write_graph(constant_graph, output_fld, os.path.abspath(output_model_file), as_text=False)
-        #return constant_graph
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

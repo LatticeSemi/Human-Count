@@ -93,7 +93,7 @@ class MyInitializer(wt_in.Initializer):
         self.name = name1 + "kernels"
 
     def __call__(self, shape=None, dtype=None, **kwargs):
-        kernel_init = tf.keras.initializers.TruncatedNormal(
+        kernel_init = tf.compat.v1.keras.initializers.TruncatedNormal(
             stddev=0.0001)
         kernel = _variable_with_weight_decay(
             name=self.name, shape=shape,
