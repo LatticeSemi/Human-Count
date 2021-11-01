@@ -6,10 +6,11 @@
 # Written by Bharath Hariharan
 # --------------------------------------------------------
 
-import xml.etree.ElementTree as ET
-import os
-import pickle as cPickle
 import numpy as np
+import os
+import pickle
+import xml.etree.ElementTree as ET
+
 
 def parse_rec(filename):
     """ Parse a PASCAL VOC xml file """
@@ -29,6 +30,7 @@ def parse_rec(filename):
         objects.append(obj_struct)
 
     return objects
+
 
 def voc_ap(rec, prec, use_07_metric=False):
     """ ap = voc_ap(rec, prec, [use_07_metric])
@@ -62,6 +64,7 @@ def voc_ap(rec, prec, use_07_metric=False):
         # and sum (\Delta recall) * prec
         ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
     return ap
+
 
 def voc_eval(detpath,
              annopath,
@@ -110,9 +113,10 @@ def voc_eval(detpath,
         for i, imagename in enumerate(imagenames):
             recs[imagename] = parse_rec(annopath.format(imagename))
             if i % 100 == 0:
-                print ('Reading annotation for {:d}/{:d}'.format(i + 1, len(imagenames)))
+                print('Reading annotation for {:d}/{:d}'.format(
+                    i + 1, len(imagenames)))
         # save
-        print ('Saving cached annotations to {:s}'.format(cachefile))
+        print('Saving cached annotations to {:s}'.format(cachefile))
         with open(cachefile, 'w') as f:
             cPickle.dump(recs, f)
     else:
@@ -144,14 +148,13 @@ def voc_eval(detpath,
     BB = np.array([[float(z) for z in x[2:]] for x in splitlines])
 
     if confidence.shape[0] == 0:
-      return 0, 0, 0
+        return 0, 0, 0
 
     # sort by confidence
     sorted_ind = np.argsort(-confidence)
     sorted_scores = np.sort(-confidence)
     BB = BB[sorted_ind, :]
     image_ids = [image_ids[x] for x in sorted_ind]
-
 
     # go down dets and mark TPs and FPs
     nd = len(image_ids)

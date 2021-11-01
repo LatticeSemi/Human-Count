@@ -6,25 +6,25 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
 import os
 import sys
-
-from utils import util
-from easydict import EasyDict as edict
-import numpy as np
 import tensorflow as tf
+from easydict import EasyDict as edict
 from tensorflow.python.training import moving_averages
-from binary_ops import binary_tanh
+
 from binary_ops import binarize
+from binary_ops import binary_tanh
 from binary_ops import lin_8b_quant
+from utils import util
 
 
 def _add_loss_summaries(total_loss):
     """Add summaries for losses
-  Generates loss summaries for visualizing the performance of the network.
-  Args:
-    total_loss: Total loss from loss().
-  """
+    Generates loss summaries for visualizing the performance of the network.
+    Args:
+      total_loss: Total loss from loss().
+    """
     losses = tf.get_collection('losses')
 
     # Attach a scalar summary to all individual losses and the total loss; do the
@@ -36,14 +36,14 @@ def _add_loss_summaries(total_loss):
 def _variable_on_device(name, shape, initializer, trainable=True):
     """Helper to create a Variable.
 
-  Args:
-    name: name of the variable
-    shape: list of ints
-    initializer: initializer for Variable
+    Args:
+      name: name of the variable
+      shape: list of ints
+      initializer: initializer for Variable
 
-  Returns:
-    Variable Tensor
-  """
+    Returns:
+      Variable Tensor
+    """
     # TODO(bichen): fix the hard-coded data type below
     dtype = tf.float32
     if not callable(initializer):
@@ -57,18 +57,18 @@ def _variable_on_device(name, shape, initializer, trainable=True):
 def _variable_with_weight_decay(name, shape, wd, initializer, trainable=True):
     """Helper to create an initialized Variable with weight decay.
 
-  Note that the Variable is initialized with a truncated normal distribution.
-  A weight decay is added only if one is specified.
+    Note that the Variable is initialized with a truncated normal distribution.
+    A weight decay is added only if one is specified.
 
-  Args:
-    name: name of the variable
-    shape: list of ints
-    wd: add L2Loss weight decay multiplied by this float. If None, weight
-        decay is not added for this Variable.
+    Args:
+      name: name of the variable
+      shape: list of ints
+      wd: add L2Loss weight decay multiplied by this float. If None, weight
+          decay is not added for this Variable.
 
-  Returns:
-    Variable Tensor
-  """
+    Returns:
+      Variable Tensor
+    """
     var = _variable_on_device(name, shape, initializer, trainable)
     if wd is not None and trainable:
         weight_decay = tf.multiply(tf.nn.l2_loss(var), wd, name='weight_loss')
@@ -87,16 +87,11 @@ class ModelSkeleton:
         self.keep_prob = 0.5 if mc.IS_TRAINING else 1.0
 
         # image batch input
-        if self.mc.GRAY:
-            self.ph_image_input = tf.placeholder(
-                tf.float32, [mc.BATCH_SIZE, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 1],
-                name='image_input'
-            )
-        else:
-            self.ph_image_input = tf.placeholder(
-                tf.float32, [mc.BATCH_SIZE, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
-                name='image_input'
-            )
+        self.ph_image_input = tf.placeholder(
+            # tf.float32, [mc.BATCH_SIZE, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3], # RGB color
+            tf.float32, [mc.BATCH_SIZE, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 1],  # gray color <---------------
+            name='image_input'
+        )
         # A tensor where an element is 1 if the corresponding box is "responsible"
         # for detection an object and 0 otherwise.
         self.ph_input_mask = tf.placeholder(
@@ -117,28 +112,17 @@ class ModelSkeleton:
             name='iou', dtype=tf.float32
         )
 
-        if self.mc.GRAY:
-            self.FIFOQueue = tf.FIFOQueue(
-                capacity=mc.QUEUE_CAPACITY,
-                dtypes=[tf.float32, tf.float32, tf.float32,
-                        tf.float32, tf.float32],
-                shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 1],
-                        [mc.ANCHORS, 1],
-                        [mc.ANCHORS, 4],
-                        [mc.ANCHORS, 4],
-                        [mc.ANCHORS, mc.CLASSES]],
-            )
-        else:
-            self.FIFOQueue = tf.FIFOQueue(
-                capacity=mc.QUEUE_CAPACITY,
-                dtypes=[tf.float32, tf.float32, tf.float32,
-                        tf.float32, tf.float32],
-                shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
-                        [mc.ANCHORS, 1],
-                        [mc.ANCHORS, 4],
-                        [mc.ANCHORS, 4],
-                        [mc.ANCHORS, mc.CLASSES]],
-            )
+        self.FIFOQueue = tf.FIFOQueue(
+            capacity=mc.QUEUE_CAPACITY,
+            dtypes=[tf.float32, tf.float32, tf.float32,
+                    tf.float32, tf.float32],
+            # shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3], # RGB color <---------------
+            shapes=[[mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 1],  # gray color
+                    [mc.ANCHORS, 1],
+                    [mc.ANCHORS, 4],
+                    [mc.ANCHORS, 4],
+                    [mc.ANCHORS, mc.CLASSES]],
+        )
 
         self.enqueue_op = self.FIFOQueue.enqueue_many(
             [self.ph_image_input, self.ph_input_mask,
@@ -172,17 +156,27 @@ class ModelSkeleton:
         with tf.variable_scope('interpret_output') as scope:
             preds = self.preds
 
+            # confidence
+            num_confidence_scores = mc.ANCHOR_PER_GRID
+            self.pred_conf = tf.sigmoid(
+                tf.reshape(
+                    preds[:, :, :, :num_confidence_scores],
+                    [mc.BATCH_SIZE, mc.ANCHORS]
+                ),
+                name='pred_confidence_score'
+            )
+
             # probability
-            num_class_probs = mc.ANCHOR_PER_GRID * mc.CLASSES
+            num_class_probs = mc.ANCHOR_PER_GRID * mc.CLASSES + num_confidence_scores
             print('ANCHOR_PER_GRID:', mc.ANCHOR_PER_GRID)
             print('CLASSES:', mc.CLASSES)
-            print('preds2:', preds[:, :, :, :num_class_probs])
+            print('preds2:', preds[:, :, :, num_confidence_scores:num_class_probs])
             print('ANCHORS:', mc.ANCHORS)
 
             self.pred_class_probs = tf.reshape(
                 tf.nn.softmax(
                     tf.reshape(
-                        preds[:, :, :, :num_class_probs],
+                        preds[:, :, :, num_confidence_scores:num_class_probs],
                         [-1, mc.CLASSES]
                     )
                 ),
@@ -190,19 +184,9 @@ class ModelSkeleton:
                 name='pred_class_probs'
             )
 
-            # confidence
-            num_confidence_scores = mc.ANCHOR_PER_GRID + num_class_probs
-            self.pred_conf = tf.sigmoid(
-                tf.reshape(
-                    preds[:, :, :, num_class_probs:num_confidence_scores],
-                    [mc.BATCH_SIZE, mc.ANCHORS]
-                ),
-                name='pred_confidence_score'
-            )
-
             # bbox_delta
             self.pred_box_delta = tf.reshape(
-                preds[:, :, :, num_confidence_scores:],
+                preds[:, :, :, num_class_probs:],
                 [mc.BATCH_SIZE, mc.ANCHORS, 4],
                 name='bbox_delta'
             )
@@ -327,10 +311,27 @@ class ModelSkeleton:
         with tf.variable_scope('class_regression') as scope:
             # cross-entropy: q * -log(p) + (1-q) * -log(1-p)
             # add a small value into log to prevent blowing up
+            # self.class_loss = tf.truediv(
+            #    tf.reduce_sum(
+            #        (self.labels*(-tf.log(self.pred_class_probs+mc.EPSILON))
+            #         + (1-self.labels)*(-tf.log(1-self.pred_class_probs+mc.EPSILON)))
+            #        * self.input_mask * mc.LOSS_COEF_CLASS),
+            #    self.num_objects,
+            #    name='class_loss'
+            # )
+            self.labels_rev = tf.reverse(self.labels, [-1])
+            '''
+            self.class_term2 = tf.reduce_sum((1-self.labels)*(-tf.log(1-self.pred_class_probs+1e-8)))
+            self.class_term2_1 = self.labels
+            self.class_term2_2 = -tf.log(self.pred_class_probs+1e-8)
+            self.class_term2_3 = self.pred_class_probs
+            self.class_term2_4 = (1-self.labels)*(-tf.log(1-self.pred_class_probs+1e-8))
+            self.class_term2_5 = self.labels_rev
+            '''
             self.class_loss = tf.truediv(
                 tf.reduce_sum(
                     (self.labels * (-tf.log(self.pred_class_probs + mc.EPSILON))
-                     + (1 - self.labels) * (-tf.log(1 - self.pred_class_probs + mc.EPSILON)))
+                     + (1 - self.labels) * (-tf.log(1 - self.pred_class_probs + 1e-7)))
                     * self.input_mask * mc.LOSS_COEF_CLASS),
                 self.num_objects,
                 name='class_loss'
@@ -343,7 +344,8 @@ class ModelSkeleton:
                 tf.reduce_sum(
                     tf.square((self.ious - self.pred_conf))
                     * (input_mask * mc.LOSS_COEF_CONF_POS / self.num_objects
-                       + (1 - input_mask) * mc.LOSS_COEF_CONF_NEG / (mc.ANCHORS - self.num_objects)),
+                       + (1 - input_mask) * mc.LOSS_COEF_CONF_NEG * mc.BATCH_SIZE / (
+                                   mc.ANCHORS * mc.BATCH_SIZE - self.num_objects)),
                     reduction_indices=[1]
                 ),
                 name='confidence_loss'
@@ -360,6 +362,16 @@ class ModelSkeleton:
                 name='bbox_loss'
             )
             tf.add_to_collection('losses', self.bbox_loss)
+
+        # added for regularizing variance
+        '''
+        with tf.variable_scope('variance_regression') as scope:
+          #self.std_goal = tf.constant(0.25, dtype=tf.float32, shape=[8], name='std_goal')
+          self.std_goal = tf.constant(0.25, dtype=tf.float32, shape=[11], name='std_goal')
+          self.regularizer = tf.math.subtract(self.k_std, self.std_goal)
+          self.kstd_loss = tf.nn.l2_loss(self.regularizer) * 0.5
+          tf.add_to_collection('losses', self.kstd_loss)
+        '''
 
         # add above losses as well as weight decay losses to form the total loss
         self.loss = tf.add_n(tf.get_collection('losses'), name='total_loss')
@@ -401,16 +413,11 @@ class ModelSkeleton:
     def _add_viz_graph(self):
         """Define the visualization operation."""
         mc = self.mc
-        if mc.GRAY:
-            self.image_to_show = tf.placeholder(
-                tf.float32, [None, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 1],
-                name='image_to_show'
-            )
-        else:
-            self.image_to_show = tf.placeholder(
-                tf.float32, [None, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],
-                name='image_to_show'
-            )
+        self.image_to_show = tf.placeholder(
+            tf.float32, [None, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 3],  # RGB color
+            # tf.float32, [None, mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 1], # gray color <-------------------
+            name='image_to_show'
+        )
         self.viz_op = tf.summary.image('sample_detection_results',
                                        self.image_to_show, collections='image_summary',
                                        max_outputs=mc.BATCH_SIZE)
@@ -460,7 +467,7 @@ class ModelSkeleton:
 
             self.model_params += [gamma, beta, mean, variance]  # <- to save in snapshot
             with tf.control_dependencies(control_inputs):
-                y = tf.nn.batch_normalization(x, mean, variance, beta, gamma, 0.001)
+                y = tf.nn.batch_normalization(x, mean, variance, beta, gamma, 0.000001)
             y.set_shape(x.get_shape())
             return y
 
@@ -469,26 +476,26 @@ class ModelSkeleton:
             size, stride, padding='SAME', freeze=False, relu=True,
             conv_with_bias=False, stddev=0.001):
         """ Convolution + BatchNorm + [relu] layer. Batch mean and var are treated
-    as constant. Weights have to be initialized from a pre-trained model or
-    restored from a checkpoint.
+        as constant. Weights have to be initialized from a pre-trained model or
+        restored from a checkpoint.
 
-    Args:
-      inputs: input tensor
-      conv_param_name: name of the convolution parameters
-      bn_param_name: name of the batch normalization parameters
-      scale_param_name: name of the scale parameters
-      filters: number of output filters.
-      size: kernel size.
-      stride: stride
-      padding: 'SAME' or 'VALID'. See tensorflow doc for detailed description.
-      freeze: if true, then do not train the parameters in this layer.
-      xavier: whether to use xavier weight initializer or not.
-      relu: whether to use relu or not.
-      conv_with_bias: whether or not add bias term to the convolution output.
-      stddev: standard deviation used for random weight initializer.
-    Returns:
-      A convolutional layer operation.
-    """
+        Args:
+          inputs: input tensor
+          conv_param_name: name of the convolution parameters
+          bn_param_name: name of the batch normalization parameters
+          scale_param_name: name of the scale parameters
+          filters: number of output filters.
+          size: kernel size.
+          stride: stride
+          padding: 'SAME' or 'VALID'. See tensorflow doc for detailed description.
+          freeze: if true, then do not train the parameters in this layer.
+          xavier: whether to use xavier weight initializer or not.
+          relu: whether to use relu or not.
+          conv_with_bias: whether or not add bias term to the convolution output.
+          stddev: standard deviation used for random weight initializer.
+        Returns:
+          A convolutional layer operation.
+        """
         mc = self.mc
 
         with tf.variable_scope(conv_param_name) as scope:
@@ -562,23 +569,23 @@ class ModelSkeleton:
 
     def _conv_layer(
             self, layer_name, inputs, filters, size, stride, padding='SAME',
-            freeze=False, xavier=False, relu=True, w_bin=16, bias_on=True, mul_f=1, stddev=0.001):
+            freeze=False, xavier=False, relu=True, w_bin=16, depthwise=False, bias_on=True, mul_f=1, stddev=0.001):
         """Convolutional layer operation constructor.
 
-    Args:
-      layer_name: layer name.
-      inputs: input tensor
-      filters: number of output filters.
-      size: kernel size.
-      stride: stride
-      padding: 'SAME' or 'VALID'. See tensorflow doc for detailed description.
-      freeze: if true, then do not train the parameters in this layer.
-      xavier: whether to use xavier weight initializer or not.
-      relu: whether to use relu or not.
-      stddev: standard deviation used for random weight initializer.
-    Returns:
-      A convolutional layer operation.
-    """
+        Args:
+          layer_name: layer name.
+          inputs: input tensor
+          filters: number of output filters.
+          size: kernel size.
+          stride: stride
+          padding: 'SAME' or 'VALID'. See tensorflow doc for detailed description.
+          freeze: if true, then do not train the parameters in this layer.
+          xavier: whether to use xavier weight initializer or not.
+          relu: whether to use relu or not.
+          stddev: standard deviation used for random weight initializer.
+        Returns:
+          A convolutional layer operation.
+        """
 
         mc = self.mc
         use_pretrained_param = False
@@ -620,129 +627,19 @@ class ModelSkeleton:
                     stddev=stddev, dtype=tf.float32)
                 bias_init = tf.constant_initializer(0.0)
 
-            kernel = _variable_with_weight_decay(
-                'kernels', shape=[size, size, int(channels), filters],
-                wd=mc.WEIGHT_DECAY, initializer=kernel_init, trainable=(not freeze))
-            if False:  # weight mask for pruning; one for each output channel
-                w_msk = _variable_with_weight_decay(
-                    'mask', shape=[filters],
+            if depthwise == False:  # normal conv 2D
+                kernel = _variable_with_weight_decay(
+                    'kernels', shape=[size, size, int(channels), filters],
+                    wd=mc.WEIGHT_DECAY, initializer=kernel_init, trainable=(not freeze))
+            else:  # depthwise conv
+                # ignore filters parameter (# of ochannel since it's same to ichannel)
+                assert int(channels) == filters, "DW conv's ic should be same to oc: {} vs. {}".format(int(channels),
+                                                                                                       filters)
+                kernel = _variable_with_weight_decay(
+                    'kernels', shape=[size, size, int(channels), 1],
                     wd=mc.WEIGHT_DECAY, initializer=kernel_init, trainable=(not freeze))
 
-            if False:  # Force 1/2 of output channels' weight to go to 0s
-                with tf.variable_scope('oc_loss') as scope:
-                    kernel_channels = tf.unstack(kernel, axis=-1)  # split into OCs # (H, W, IC, OC)
-                    kernel_channels_even = kernel_channels[::2]  # even output channels
-                    kernel_channels_odd = kernel_channels[1::2]  # odd output channels
-                    tf.summary.histogram('kernel_cn_even', kernel_channels_even)
-                    tf.summary.histogram('kernel_cn_odd', kernel_channels_odd)
-                    oc_odd = tf.multiply(tf.nn.l2_loss(kernel_channels_odd), 0.001, name='oc_loss')
-                    tf.summary.scalar('oc_odd', oc_odd)
-                    oc_loss = tf.multiply(tf.nn.l2_loss(kernel_channels_even), 0.02, name='oc_loss')
-                    tf.add_to_collection('losses', oc_loss)
-            elif False:  # Force 2/3 of output channels' weight to go to 0s
-                with tf.variable_scope('oc_loss') as scope:
-                    kernel_channels = tf.unstack(kernel, axis=-1)  # split into OCs # (H, W, IC, OC)
-                    mul_f = 5
-                    split_idx = len(kernel_channels) * (mul_f - 1) // (mul_f)
-                    kernel_channels_even = kernel_channels[:split_idx]
-
-                    # print('even len ', kernel_channels_even)
-                    kernel_channels_even = tf.zeros(tf.shape(kernel_channels_even), tf.float32)
-                    # print('zero len ', kernel_channels_even)
-                    kernel_channels_odd = kernel_channels[split_idx:]
-                    kernel = tf.concat([kernel_channels_even, kernel_channels_odd], axis=0)
-                    # print('shape of kernel even', tf.shape(kernel_channels_even))
-                    # print('shape of kernel odd', tf.shape(kernel_channels_odd))
-                    print('kernel ', kernel)
-                    tf.summary.histogram('kernel_cn_even', kernel_channels_even)
-                    tf.summary.histogram('kernel_cn_odd', kernel_channels_odd)
-                    oc_odd = tf.multiply(tf.nn.l2_loss(kernel_channels_odd), 0.05, name='oc_loss')
-                    tf.summary.scalar('oc_odd', oc_odd)
-                    oc_loss = tf.multiply(tf.nn.l2_loss(kernel_channels_even), 0.05, name='oc_loss')
-                    tf.add_to_collection('losses', oc_loss)
-            elif False:  # mul_f based; Use only first 1/mul_f part; other parst are going to 0
-                with tf.variable_scope('oc_loss') as scope:
-                    print('mul_f={}'.format(mul_f))
-                    if mul_f > 1:
-                        if False:  # initial training
-                            kernel_channels = tf.unstack(kernel, axis=-1)  # split into OCs # (H, W, IC, OC)
-                            split_idx = len(kernel_channels) // mul_f
-                            kernel_channels_keep = kernel_channels[:split_idx]
-                            kernel_channels_discard = kernel_channels[split_idx:]
-                            print('OC={} KEEP={} DISCARD={}'.format(len(kernel_channels), len(kernel_channels_keep),
-                                                                    len(kernel_channels_discard)))
-
-                            tf.summary.histogram('kernel_cn_keep', kernel_channels_keep)
-                            tf.summary.histogram('kernel_cn_discard', kernel_channels_discard)
-
-                            oc_loss = tf.multiply(tf.nn.l2_loss(kernel_channels_discard), 0.05, name='oc_loss')
-                            tf.add_to_collection('losses', oc_loss)
-                        elif False:  # Initial training
-                            kernel_channels = tf.unstack(kernel, axis=-1)  # split into OCs # (H, W, IC, OC)
-                            split_idx = len(kernel_channels) // mul_f
-                            kernel_channels_keep = kernel_channels[:split_idx]
-                            kernel_channels_discard = kernel_channels[split_idx:]
-                            # print('kernel_channels_discard', kernel_channels[split_idx:])
-                            # kernel_channels_discard = tf.zeros(tf.shape(kernel_channels[split_idx:]), tf.float32)
-                            print('OC={} KEEP={} DISCARD={}'.format(len(kernel_channels), len(kernel_channels_keep),
-                                                                    len(kernel_channels_discard)))
-
-                            tf.summary.histogram('kernel_cn_keep', kernel_channels_keep)
-                            tf.summary.histogram('kernel_cn_discard', kernel_channels_discard)
-
-                            oc_loss = tf.multiply(tf.nn.l2_loss(kernel_channels_discard), 0.1, name='oc_loss')
-                            tf.add_to_collection('losses', oc_loss)
-
-                            # print(kernel_channels_keep)
-                            kernel = tf.concat([tf.transpose(kernel_channels_keep, [1, 2, 3, 0]),
-                                                tf.transpose(kernel_channels_discard, [1, 2, 3, 0])], axis=3)
-                        elif False:  # Larger weight for converging to 0
-                            kernel_channels = tf.unstack(kernel, axis=-1)  # split into OCs # (H, W, IC, OC)
-                            split_idx = len(kernel_channels) // mul_f
-                            kernel_channels_keep = kernel_channels[:split_idx]
-                            kernel_channels_discard = kernel_channels[split_idx:]
-                            # print('kernel_channels_discard', kernel_channels[split_idx:])
-                            # kernel_channels_discard = tf.zeros(tf.shape(kernel_channels[split_idx:]), tf.float32)
-                            print('OC={} KEEP={} DISCARD={}'.format(len(kernel_channels), len(kernel_channels_keep),
-                                                                    len(kernel_channels_discard)))
-
-                            tf.summary.histogram('kernel_cn_keep', kernel_channels_keep)
-                            tf.summary.histogram('kernel_cn_discard', kernel_channels_discard)
-
-                            oc_loss = tf.multiply(tf.nn.l2_loss(kernel_channels_discard), 0.10, name='oc_loss')
-                            tf.add_to_collection('losses', oc_loss)
-
-                            # print(kernel_channels_keep)
-                            kernel = tf.concat([tf.transpose(kernel_channels_keep, [1, 2, 3, 0]),
-                                                tf.transpose(kernel_channels_discard, [1, 2, 3, 0])], axis=3)
-
-                        elif False:  # retraining after setting 0s to discard
-                            kernel_channels = tf.unstack(kernel, axis=-1)  # split into OCs # (H, W, IC, OC)
-                            split_idx = len(kernel_channels) // mul_f
-                            # zero_idx  = len(kernel_channels)-16 # 1, 4, 8, ...; split_idx is too large at one granularity
-                            # print(self.zero_amt)
-                            zero_idx = len(
-                                kernel_channels) - 40  # 1, 4, 8, ...; split_idx is too large at one granularity
-                            kernel_channels_keep = kernel_channels[:split_idx]
-                            kernel_channels_discard = kernel_channels[split_idx:zero_idx]
-                            kernel_channels_zero = kernel_channels[zero_idx:]
-                            kernel_channels_zero = tf.zeros(tf.shape(kernel_channels_zero), tf.float32)
-                            tf.stop_gradient(kernel_channels_zero)
-                            # print('OC={} KEEP={} DISCARD={}'.format(len(kernel_channels), len(kernel_channels_keep), len(kernel_channels_discard)))
-
-                            tf.summary.histogram('kernel_cn_keep', kernel_channels_keep)
-                            tf.summary.histogram('kernel_cn_discard', kernel_channels_discard)
-                            tf.summary.histogram('kernel_cn_zero', kernel_channels_zero)
-
-                            oc_loss = tf.multiply(tf.nn.l2_loss(kernel_channels_discard), 0.05, name='oc_loss')
-                            tf.add_to_collection('losses', oc_loss)
-
-                            kernel = tf.concat([tf.transpose(kernel_channels_keep, [1, 2, 3, 0]),
-                                                tf.transpose(kernel_channels_discard, [1, 2, 3, 0]),
-                                                tf.transpose(kernel_channels_zero, [1, 2, 3, 0])], axis=3)
-                        elif True:  # Use of weight mask
-                            kernel = tf.cond(w_msk > 0.0, kernel, tf.zeros(tf.shape(kernel), tf.float32))
-
+            kstd = tf.math.reduce_std(kernel)
             # biases = _variable_on_device('biases', [filters], bias_init,
             #                          trainable=(not freeze))
             # self.model_params += [kernel, biases]
@@ -751,36 +648,22 @@ class ModelSkeleton:
                 self.model_params += [kernel]
                 kernel_bin = binarize(kernel)
                 tf.summary.histogram('kernel_bin', kernel_bin)
-                conv = tf.nn.conv2d(inputs, kernel_bin, [1, stride, stride, 1], padding=padding, name='convolution')
+                if depthwise == False:
+                    conv = tf.nn.conv2d(inputs, kernel_bin, [1, stride, stride, 1], padding=padding, name='convolution')
+                else:  # DW CONV
+                    conv = tf.nn.depthwise_conv2d(inputs, kernel_bin, [1, stride, stride, 1], padding=padding,
+                                                  name='convolution')
+
                 conv_bias = conv
             elif w_bin == 8:  # 8b quantization
-
-                if mul_f > 1 and False:
-                    kernel_channels = tf.unstack(kernel, axis=-1)  # split into OCs # (H, W, IC, OC)
-                    split_idx = len(kernel_channels) // mul_f
-                    kernel_channels_keep = kernel_channels[:split_idx]
-                    kernel_channels_discard = kernel_channels[split_idx:]
-
-                    tf.summary.histogram('kernel_cn_keep', kernel_channels_keep)
-                    tf.summary.histogram('kernel_cn_discard', kernel_channels_discard)
-
-                    oc_loss = tf.multiply(tf.nn.l2_loss(kernel_channels_discard), 0.05, name='oc_loss')
-                    tf.add_to_collection('losses', oc_loss)
-
-                    kernel_channels_keep_quant = lin_8b_quant(tf.transpose(kernel_channels_keep, [1, 2, 3, 0]))
-                    # kernel_channels_discard_quant = lin_8b_quant(tf.transpose(kernel_channels_discard, [1,2,3,0]), -0.00005, 0.00005)
-                    # kernel_channels_discard_quant = lin_8b_quant(tf.transpose(kernel_channels_discard, [1,2,3,0]), -0.005, 0.005)
-                    kernel_channels_discard_quant = lin_8b_quant(tf.transpose(kernel_channels_discard, [1, 2, 3, 0]),
-                                                                 -0.001, 0.001)
-
-                    tf.summary.histogram('kernel_cn_keep_quant', kernel_channels_keep_quant)
-                    tf.summary.histogram('kernel_cn_discard_quant', kernel_channels_discard_quant)
-
-                    kernel_quant = tf.concat([kernel_channels_keep_quant, kernel_channels_discard_quant], axis=3)
-                else:
-                    kernel_quant = lin_8b_quant(kernel)
+                kernel_quant = lin_8b_quant(kernel)
                 tf.summary.histogram('kernel_quant', kernel_quant)
-                conv = tf.nn.conv2d(inputs, kernel_quant, [1, stride, stride, 1], padding=padding, name='convolution')
+                if depthwise == False:
+                    conv = tf.nn.conv2d(inputs, kernel_quant, [1, stride, stride, 1], padding=padding,
+                                        name='convolution')
+                else:  # DW CONV
+                    conv = tf.nn.depthwise_conv2d(inputs, kernel_quant, [1, stride, stride, 1], padding=padding,
+                                                  name='convolution')
                 self.model_params += [kernel]
 
                 if bias_on:
@@ -792,7 +675,11 @@ class ModelSkeleton:
                 else:
                     conv_bias = conv
             else:
-                conv = tf.nn.conv2d(inputs, kernel, [1, stride, stride, 1], padding=padding, name='convolution')
+                if depthwise == False:
+                    conv = tf.nn.conv2d(inputs, kernel, [1, stride, stride, 1], padding=padding, name='convolution')
+                else:
+                    conv = tf.nn.depthwise_conv2d(inputs, kernel, [1, stride, stride, 1], padding=padding,
+                                                  name='convolution')
                 self.model_params += [kernel]
                 if bias_on:
                     biases = _variable_on_device('biases', [filters], bias_init, trainable=(not freeze))
@@ -820,21 +707,21 @@ class ModelSkeleton:
                 (layer_name, out_shape[1] * out_shape[2] * out_shape[3])
             )
 
-            return out
+            return out, kstd
 
     def _pooling_layer(
             self, layer_name, inputs, size, stride, padding='SAME'):
         """Pooling layer operation constructor.
 
-    Args:
-      layer_name: layer name.
-      inputs: input tensor
-      size: kernel size.
-      stride: stride
-      padding: 'SAME' or 'VALID'. See tensorflow doc for detailed description.
-    Returns:
-      A pooling layer operation.
-    """
+        Args:
+          layer_name: layer name.
+          inputs: input tensor
+          size: kernel size.
+          stride: stride
+          padding: 'SAME' or 'VALID'. See tensorflow doc for detailed description.
+        Returns:
+          A pooling layer operation.
+        """
 
         with tf.variable_scope(layer_name) as scope:
             out = tf.nn.max_pool(inputs,
@@ -847,23 +734,23 @@ class ModelSkeleton:
 
     def _fc_layer(
             self, layer_name, inputs, hiddens, flatten=False, relu=True,
-            xavier=False, stddev=0.001):
+            xavier=False, stddev=0.001, w_bin=16, a_bin=16):
         """Fully connected layer operation constructor.
 
-    Args:
-      layer_name: layer name.
-      inputs: input tensor
-      hiddens: number of (hidden) neurons in this layer.
-      flatten: if true, reshape the input 4D tensor of shape 
-          (batch, height, weight, channel) into a 2D tensor with shape 
-          (batch, -1). This is used when the input to the fully connected layer
-          is output of a convolutional layer.
-      relu: whether to use relu or not.
-      xavier: whether to use xavier weight initializer or not.
-      stddev: standard deviation used for random weight initializer.
-    Returns:
-      A fully connected layer operation.
-    """
+        Args:
+          layer_name: layer name.
+          inputs: input tensor
+          hiddens: number of (hidden) neurons in this layer.
+          flatten: if true, reshape the input 4D tensor of shape
+              (batch, height, weight, channel) into a 2D tensor with shape
+              (batch, -1). This is used when the input to the fully connected layer
+              is output of a convolutional layer.
+          relu: whether to use relu or not.
+          xavier: whether to use xavier weight initializer or not.
+          stddev: standard deviation used for random weight initializer.
+        Returns:
+          A fully connected layer operation.
+        """
         mc = self.mc
 
         use_pretrained_param = False
@@ -936,9 +823,27 @@ class ModelSkeleton:
             biases = _variable_on_device('biases', [hiddens], bias_init)
             self.model_params += [weights, biases]
 
+            # ====================
+            if w_bin == 8:  # 8b quantization
+                weights_quant = lin_8b_quant(weights)
+            else:  # 16b quantization
+                weights_quant = weights
+            tf.summary.histogram('weights_quant', weights_quant)
+            # ====================
+            # no quantization on bias since it will be added to the 16b MUL output
+            # ====================
+
             outputs = tf.nn.bias_add(tf.matmul(inputs, weights), biases)
+            tf.summary.histogram('outputs', outputs)
+
+            if a_bin == 8:
+                outputs_quant = lin_8b_quant(outputs, min_rng=min_rng, max_rng=max_rng)
+            else:
+                outputs_quant = outputs
+            tf.summary.histogram('outputs_quant', outputs_quant)
+
             if relu:
-                outputs = tf.nn.relu(outputs, 'relu')
+                outputs = tf.nn.relu(outputs_quant, 'relu')
 
             # count layer stats
             self.model_size_counter.append((layer_name, (dim + 1) * hiddens))
@@ -954,17 +859,17 @@ class ModelSkeleton:
 
     def filter_prediction(self, boxes, probs, cls_idx):
         """Filter bounding box predictions with probability threshold and
-    non-maximum supression.
+        non-maximum supression.
 
-    Args:
-      boxes: array of [cx, cy, w, h].
-      probs: array of probabilities
-      cls_idx: array of class indices
-    Returns:
-      final_boxes: array of filtered bounding boxes.
-      final_probs: array of filtered probabilities
-      final_cls_idx: array of filtered class indices
-    """
+        Args:
+          boxes: array of [cx, cy, w, h].
+          probs: array of probabilities
+          cls_idx: array of class indices
+        Returns:
+          final_boxes: array of filtered bounding boxes.
+          final_probs: array of filtered probabilities
+          final_cls_idx: array of filtered class indices
+        """
         mc = self.mc
 
         if mc.TOP_N_DETECTION < len(probs) and mc.TOP_N_DETECTION > 0:
@@ -995,12 +900,12 @@ class ModelSkeleton:
     def _activation_summary(self, x, layer_name):
         """Helper to create summaries for activations.
 
-    Args:
-      x: layer output tensor
-      layer_name: name of the layer
-    Returns:
-      nothing
-    """
+        Args:
+          x: layer output tensor
+          layer_name: name of the layer
+        Returns:
+          nothing
+        """
         with tf.variable_scope('activation_summary') as scope:
             tf.summary.histogram(
                 'activation_summary/' + layer_name, x)

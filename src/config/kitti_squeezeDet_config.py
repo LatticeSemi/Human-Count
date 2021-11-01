@@ -11,18 +11,17 @@ def kitti_squeezeDet_config():
     """Specify the parameters to tune below."""
     mc = base_model_config('KITTI')
 
-    mc.IMAGE_WIDTH = 224  # 128 #64 #224
-    mc.IMAGE_HEIGHT = 224  # 128 #64 #
-    mc.GRAY = True
+    mc.IMAGE_WIDTH = 160
+    mc.IMAGE_HEIGHT = 160
 
-    mc.BATCH_SIZE = 20
+    mc.BATCH_SIZE = 128
 
     mc.WEIGHT_DECAY = 0.0001
-    mc.LEARNING_RATE = 0.01
-    mc.DECAY_STEPS = 10000
+    mc.LEARNING_RATE = 0.00001
+    mc.DECAY_STEPS = 30000
     mc.MAX_GRAD_NORM = 1.0
     mc.MOMENTUM = 0.9
-    mc.LR_DECAY_FACTOR = 0.5
+    mc.LR_DECAY_FACTOR = 0.9
 
     mc.LOSS_COEF_BBOX = 5.0
     mc.LOSS_COEF_CONF_POS = 75.0
@@ -32,34 +31,35 @@ def kitti_squeezeDet_config():
     mc.PLOT_PROB_THRESH = 0.4
     mc.NMS_THRESH = 0.4
     mc.PROB_THRESH = 0.005
-    mc.TOP_N_DETECTION = 10
+    mc.TOP_N_DETECTION = 8
 
     mc.DATA_AUGMENTATION = True
-    mc.DRIFT_X = 150
-    mc.DRIFT_Y = 100
+    mc.DRIFT_X = 90
+    mc.DRIFT_Y = 60
     mc.EXCLUDE_HARD_EXAMPLES = False
 
     mc.ANCHOR_BOX = set_anchors(mc)
     mc.ANCHORS = len(mc.ANCHOR_BOX)
-    mc.ANCHOR_PER_GRID = 7
+    mc.ANCHOR_PER_GRID = 10
 
     return mc
 
 
 def set_anchors(mc):
-    H, W, B = 14, 14, 7  # 224/16=14, 7 anchors
-    div_scale = 2.0 * 1  # 224/224=1
-
+    H, W, B = 10, 10, 10
     anchor_shapes = np.reshape(
         [np.array(
             [
-                [int(368. / div_scale), int(368. / div_scale)],
-                [int(276. / div_scale), int(276. / div_scale)],
-                [int(184. / div_scale), int(184. / div_scale)],
-                [int(138. / div_scale), int(138. / div_scale)],
-                [int(92. / div_scale), int(92. / div_scale)],
-                [int(69. / div_scale), int(69. / div_scale)],
-                [int(46. / div_scale), int(46. / div_scale)]])] * H * W,
+                [130, 130],
+                [100, 130],
+                [70, 130],
+                [40, 130],
+                [100, 100],
+                [70, 100],
+                [40, 100],
+                [70, 70],
+                [40, 70],
+                [40, 40]])] * H * W,
         (H, W, B, 2)
     )
 

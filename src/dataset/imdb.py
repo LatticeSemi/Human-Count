@@ -2,14 +2,13 @@
 
 """The data base wrapper class"""
 
+import cv2
+import numpy as np
 import os
 import random
 import shutil
 import sys
-
 from PIL import Image, ImageFont, ImageDraw
-import cv2
-import numpy as np
 from utils.util import iou, batch_iou
 
 sys.stdout.flush()
@@ -66,11 +65,11 @@ class imdb(object):
 
     def read_image_batch(self, shuffle=True):
         """Only Read a batch of images
-    Args:
-      shuffle: whether or not to shuffle the dataset
-    Returns:
-      images: length batch_size list of arrays [height, width, 3]
-    """
+        Args:
+          shuffle: whether or not to shuffle the dataset
+        Returns:
+          images: length batch_size list of arrays [height, width, 3]
+        """
         mc = self.mc
         if shuffle:
             if self._cur_idx + mc.BATCH_SIZE >= len(self._image_idx):
@@ -90,15 +89,14 @@ class imdb(object):
         for i in batch_idx:
             im = cv2.imread(self._image_path_at(i))
             im = im.astype(np.float32, copy=False)
-            im -= mc.BGR_MEANS
-            im /= 128.0  # to make input in the range of [0, 2)
+            # im -= mc.BGR_MEANS
             orig_h, orig_w, _ = [float(v) for v in im.shape]
-            if mc.GRAY:
-                im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
             im = cv2.resize(im, (mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT), interpolation=cv2.INTER_AREA)
 
-            if mc.GRAY:
-                im = im.reshape((mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT, 1))
+            # im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY) # gray color instead of RGB <----------------
+            # im = im.reshape((mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 1))
+            # im /= 128.0
+            # im = im - np.array([[[128]]]) <----------------
 
             x_scale = mc.IMAGE_WIDTH / orig_w
             y_scale = mc.IMAGE_HEIGHT / orig_h
@@ -109,18 +107,18 @@ class imdb(object):
 
     def read_batch(self, shuffle=True):
         """Read a batch of image and bounding box annotations.
-    Args:
-      shuffle: whether or not to shuffle the dataset
-    Returns:
-      image_per_batch: images. Shape: batch_size x width x height x [b, g, r]
-      label_per_batch: labels. Shape: batch_size x object_num
-      delta_per_batch: bounding box deltas. Shape: batch_size x object_num x
-          [dx ,dy, dw, dh]
-      aidx_per_batch: index of anchors that are responsible for prediction.
-          Shape: batch_size x object_num
-      bbox_per_batch: scaled bounding boxes. Shape: batch_size x object_num x
-          [cx, cy, w, h]
-    """
+        Args:
+          shuffle: whether or not to shuffle the dataset
+        Returns:
+          image_per_batch: images. Shape: batch_size x width x height x [b, g, r]
+          label_per_batch: labels. Shape: batch_size x object_num
+          delta_per_batch: bounding box deltas. Shape: batch_size x object_num x
+              [dx ,dy, dw, dh]
+          aidx_per_batch: index of anchors that are responsible for prediction.
+              Shape: batch_size x object_num
+          bbox_per_batch: scaled bounding boxes. Shape: batch_size x object_num x
+              [cx, cy, w, h]
+        """
         mc = self.mc
 
         if shuffle:
@@ -138,7 +136,7 @@ class imdb(object):
                 self._cur_idx += mc.BATCH_SIZE
 
         image_per_batch = []
-        image_per_batch_viz = []
+        org_img_per_batch = []
         label_per_batch = []
         bbox_per_batch = []
         delta_per_batch = []
@@ -152,7 +150,10 @@ class imdb(object):
 
         for idx in batch_idx:
             # load the image
-            im = cv2.imread(self._image_path_at(idx), cv2.IMREAD_UNCHANGED)
+            # im = cv2.imread(self._image_path_at(idx), cv2.IMREAD_GRAYSCALE).astype(np.float32, copy=False)
+            # im = cv2.imread(self._image_path_at(idx)).astype(np.float32, copy=False)
+            im = cv2.imread(self._image_path_at(idx))
+            # print('file name:', self._image_path_at(idx))
             if im is None:
                 print('failed file read:' + self._image_path_at(idx))
 
@@ -161,47 +162,157 @@ class imdb(object):
             # random brightness control
             hsv = cv2.cvtColor(im, cv2.COLOR_BGR2HSV)
             h, s, v = cv2.split(hsv)
-            add_v = np.random.randint(55, 200) - 128
+            # add_v = np.random.randint(0, 255)
+            add_v = np.random.randint(85, 160) - 128
+            # v += (add_v - 128)
             v = np.where(v <= 255 - add_v, v + add_v, 255)
             final_hsv = cv2.merge((h, s, v))
             im = cv2.cvtColor(final_hsv, cv2.COLOR_HSV2BGR)
 
-            im -= mc.BGR_MEANS  # <-------------------------------
-            im /= 128.0  # to make input in the range of [0, 2)
+            # im -= mc.BGR_MEANS # <-------------------------------
+            # im -= np.array([[128]]) # <-------------------------------
+            # print('im_shae',im.shape) # <-------------------------------
             orig_h, orig_w, _ = [float(v) for v in im.shape]
-            if mc.GRAY:
-                im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+            # print('orig_h:', orig_h)
+            # print('orig_w:', orig_w)
 
             # load annotations
             label_per_batch.append([b[4] for b in self._rois[idx][:]])
+            # gt_bbox = np.array([[b[0]*orig_w, b[1]*orig_h, b[2]*orig_w, b[3]*orig_h] for b in self._rois[idx][:]])
             gt_bbox = np.array(
                 [[(b[0] + b[2]) / 2, (b[1] + b[3]) / 2, b[2] - b[0], b[3] - b[1]] for b in self._rois[idx][:]])
+            # assert gt_bbox[:,0].all > 0, 'less than 0 gt_bbox[0]'
+            # assert gt_bbox[:,1].all > 0, 'less than 0 gt_bbox[1]'
+            # assert gt_bbox[:,2].all > 0, 'less than 0 gt_bbox[2]'
+            # assert gt_bbox[:,3].all > 0, 'less than 0 gt_bbox[3]'
+            '''
+      
+            b[0] = b[0]*orig_w # cx
+            b[1] = b[1]*orig_h # cy
+            b[2] = b[2]*orig_w # w
+            b[3] = b[3]*orig_h # h
+      
+      
+            # b = center of x(xmin+width/2), center of y(ymin+height/2), width, height
+            #print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa')
+            #print('image path:', self._image_path_at(idx))
+            #print('bs=', b[0], b[1], b[2], b[3])
+            #print('orig_w=', orig_w)
+            #print('orig_h=', orig_h)
+            #print('1st value', b[0]-b[2]/2+mc.IMAGE_WIDTH-orig_w)
+            #print('2nd value', b[0]-b[2]/2)
+            #print('3rd value', mc.IMAGE_WIDTH-b[2])
+            assert max(0, b[0]-b[2]/2+mc.IMAGE_WIDTH*2-orig_w) < min(b[0]-b[2]/2+1, mc.IMAGE_WIDTH*2-b[2]+1), 'incorrect lo/hi' 
+            disp_x = np.random.randint(max(0, b[0]-b[2]/2+mc.IMAGE_WIDTH*2-orig_w), 
+                                       min(b[0]-b[2]/2+1, mc.IMAGE_WIDTH*2-b[2]+1)) 
+            disp_y = np.random.randint(max(0, b[1]-b[3]/2+mc.IMAGE_HEIGHT*2-orig_h), 
+                                       min(b[1]-b[3]/2+1, mc.IMAGE_HEIGHT*2-b[3]+1))
+            crop_x = int(b[0]-b[2]/2 - disp_x) # width =b[2]
+            crop_y = int(b[1]-b[3]/2 - disp_y) # height=b[3]
+            #print('crops', crop_x, crop_y)
+            im = im[crop_y:crop_y+mc.IMAGE_HEIGHT*2, crop_x:crop_x+mc.IMAGE_WIDTH*2]
+            #b[0] = disp_x+b[2]/2 #crop_x
+            #b[1] = disp_y+b[3]/2 #crop_y
+      
+            gt_bbox[:, 0] = disp_x+b[2]/2 #crop_x
+            gt_bbox[:, 1] = disp_y+b[3]/2 #crop_y
+            #print('new bs=', gt_bbox[0], b[2], b[3])
+            assert crop_x >= 0 and crop_y >= 0, 'crop_x and crop_y incorrect'
+            orig_h, orig_w, _ = [float(v) for v in im.shape]
+            #print('size of cropped image', orig_h, orig_w)
+            assert orig_h == mc.IMAGE_HEIGHT*2 and orig_w == mc.IMAGE_WIDTH*2, 'incorrect size of cropped image'
+            '''
 
-            assert np.all(gt_bbox[:, 0]) > 0, 'less than 0 gt_bbox[0]'
-            assert np.all(gt_bbox[:, 1]) > 0, 'less than 0 gt_bbox[1]'
-            assert np.all(gt_bbox[:, 2]) > 0, 'less than 0 gt_bbox[2]'
-            assert np.all(gt_bbox[:, 3]) > 0, 'less than 0 gt_bbox[3]'
-
+            # b[0] = b[0]
             if mc.DATA_AUGMENTATION:
+                '''
+                if True: # random scaling before drifting; put the shrikned image at the center
+                  min_w = min(gt_bbox[:, 2]) # in pixels
+                  min_w_ratio = min_w / orig_w # ratio
+                  adj_target = 0.1 / min_w_ratio # to get 0.1 in overall ratio (22 pixels in 224*224)
+                  if min_w_ratio < 0.1: # no scale down for already small faces
+                    adj_target = 1.0
+                  #sc = np.random.random_sample() * (1.0 - adj_target) + adj_target # [adj_target, 1.0)
+                  sc = np.random.random_sample() * (0.7 - adj_target) + adj_target # [adj_target, 1.0)
+                  #print("orig_w={}, orig_h={}".format(orig_w, orig_h))
+                  new_w = round(orig_w * sc)
+                  new_h = round(orig_h * sc)
+                  #print("new_w={}, new_h={}".format(new_w, new_h))
+                  im = cv2.resize(im, (int(new_w), int(new_h)), interpolation=cv2.INTER_AREA)
+        
+                  distorted_im = np.zeros(
+                      (int(orig_h), int(orig_w), 3)).astype(np.float32)
+                  #print("dist_im={}, im={}".format(distorted_im.shape, im.shape))
+                  center_sy = int((orig_h - new_h)/2.) # UL y
+                  center_sx = int((orig_w - new_w)/2.) # UL x
+                  distorted_im[center_sy:center_sy+int(new_h), center_sx:center_sx+int(new_w), :] = im
+                  im = distorted_im
+        
+                  #print("org bbox:", gt_bbox)
+                  gt_bbox[:, 0::2] = gt_bbox[:, 0::2]*sc
+                  gt_bbox[:, 1::2] = gt_bbox[:, 1::2]*sc
+                  gt_bbox[:, 0] = gt_bbox[:, 0] + center_sx
+                  gt_bbox[:, 1] = gt_bbox[:, 1] + center_sy
+        
+        
+                assert mc.DRIFT_X >= 0 and mc.DRIFT_Y > 0, \
+                    'mc.DRIFT_X and mc.DRIFT_Y must be >= 0'
+        
+                if mc.DRIFT_X > 0 or mc.DRIFT_Y > 0:
+                  # Ensures that gt boundibg box is not cutted out of the image
+              #print('gt_bbox', gt_bbox)
+              #print('gt_bbox[:, 0]', gt_bbox[:, 0])
+              #print('gt_bbox[:, 2]', gt_bbox[:, 2])
+                  max_drift_x = min(gt_bbox[:, 0] - gt_bbox[:, 2]/2.0+1)
+                  max_drift_y = min(gt_bbox[:, 1] - gt_bbox[:, 3]/2.0+1)
+              #print('max_drift_x=', max_drift_x)
+              #print('max_drift_y=', max_drift_y)
+                  assert max_drift_x >= 0 and max_drift_y >= 0, 'bbox out of image'
+        
+                  dy = np.random.randint(-mc.DRIFT_Y, min(mc.DRIFT_Y+1, max_drift_y))
+                  dx = np.random.randint(-mc.DRIFT_X, min(mc.DRIFT_X+1, max_drift_x))
+        
+                  # shift bbox
+                  gt_bbox[:, 0] = gt_bbox[:, 0] - dx
+                  gt_bbox[:, 1] = gt_bbox[:, 1] - dy
+        
+                  # distort image
+                  orig_h -= dy
+                  orig_w -= dx
+                  orig_x, dist_x = max(dx, 0), max(-dx, 0)
+                  orig_y, dist_y = max(dy, 0), max(-dy, 0)
+        
+                  distorted_im = np.zeros(
+                      (int(orig_h), int(orig_w), 3)).astype(np.float32)
+                  distorted_im[dist_y:, dist_x:, :] = im[orig_y:, orig_x:, :]
+              #print(distorted_im.shape)
+              #print(im.shape)
+                  im = distorted_im
+                '''
+
                 # Flip image with 50% probability
-                if np.random.randint(2) > 0.5 and not mc.GRAY:
+                if np.random.randint(2) > 0.5:
                     im = im[:, ::-1, :]
-                else:
-                    im = im[:, ::-1]
-                gt_bbox[:, 0] = orig_w - 1 - gt_bbox[:, 0]
+                    if len(gt_bbox) != 0:
+                        gt_bbox[:, 0] = orig_w - 1 - gt_bbox[:, 0]
 
             # scale image
             im = cv2.resize(im, (mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT), interpolation=cv2.INTER_AREA)
-            if mc.GRAY:
-                im = im.reshape((mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT, 1))
+            im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)  # gray color instead of RGB
+            org_img = im.copy()
+            im /= 128.0
+            org_img = cv2.cvtColor(org_img, cv2.COLOR_GRAY2BGR)
+            im = im.reshape((mc.IMAGE_HEIGHT, mc.IMAGE_WIDTH, 1))
+            # im = im - np.array([[[128]]]) # <----------------------------------------------????????????????
             image_per_batch.append(im)
-            image_per_batch_viz.append(im * 128.0)
+            org_img_per_batch.append(org_img)
 
             # scale annotation
             x_scale = mc.IMAGE_WIDTH / orig_w
             y_scale = mc.IMAGE_HEIGHT / orig_h
-            gt_bbox[:, 0::2] = gt_bbox[:, 0::2] * x_scale
-            gt_bbox[:, 1::2] = gt_bbox[:, 1::2] * y_scale
+            if len(gt_bbox) != 0:
+                gt_bbox[:, 0::2] = gt_bbox[:, 0::2] * x_scale
+                gt_bbox[:, 1::2] = gt_bbox[:, 1::2] * y_scale
             bbox_per_batch.append(gt_bbox)
 
             aidx_per_image, delta_per_image = [], []
@@ -238,13 +349,14 @@ class imdb(object):
                             break
 
                 box_cx, box_cy, box_w, box_h = gt_bbox[i]
+                # print(box_cx, box_cy, box_w, box_h)
                 delta = [0] * 4
                 delta[0] = (box_cx - mc.ANCHOR_BOX[aidx][0]) / mc.ANCHOR_BOX[aidx][2]
                 delta[1] = (box_cy - mc.ANCHOR_BOX[aidx][1]) / mc.ANCHOR_BOX[aidx][3]
                 if False:
                     delta[2] = np.log(box_w / mc.ANCHOR_BOX[aidx][2])
                     delta[3] = np.log(box_h / mc.ANCHOR_BOX[aidx][3])
-                else:  # to remove exp in FPGA
+                else:  # change per Hun Seung's recommendation
                     delta[2] = box_w / mc.ANCHOR_BOX[aidx][2]
                     delta[3] = box_h / mc.ANCHOR_BOX[aidx][3]
 
@@ -261,8 +373,8 @@ class imdb(object):
             print('number of objects: {}'.format(num_objects))
             print('number of objects with 0 iou: {}'.format(num_zero_iou_obj))
 
-        return image_per_batch, label_per_batch, delta_per_batch, \
-               aidx_per_batch, bbox_per_batch, image_per_batch_viz
+        return org_img_per_batch, image_per_batch, label_per_batch, delta_per_batch, \
+               aidx_per_batch, bbox_per_batch
 
     def evaluate_detections(self):
         raise NotImplementedError
@@ -317,5 +429,5 @@ class imdb(object):
                 out_im_path = os.path.join(det_im_dir, str(i) + image_format)
                 im.save(out_im_path)
                 im = np.array(im)
-                out_ims.append(im[:, :, ::-1])
+                out_ims.append(im[:, :, ::-1])  # RGB to BGR
         return out_ims

@@ -7,20 +7,19 @@ from __future__ import division
 from __future__ import print_function
 
 import cv2
-from datetime import datetime
+import numpy as np
 import os.path
 import sys
-import time
-
-import numpy as np
-from six.moves import xrange
 import tensorflow as tf
 import threading
+import time
+from datetime import datetime
+from six.moves import xrange
 
 from config import *
 from dataset import pascal_voc, kitti
-from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
 from nets import *
+from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -59,7 +58,7 @@ def _draw_box(im, box_list, label_list, color=(128, 0, 128), cdict=None, form='c
 
         xmin, ymin, xmax, ymax = [int(b) * scale for b in bbox]
 
-        l = label.split(':')[0]
+        l = label.split(':')[0]  # text before "CLASS: (PROB)"
         if cdict and l in cdict:
             c = cdict[l]
         else:
@@ -70,6 +69,7 @@ def _draw_box(im, box_list, label_list, color=(128, 0, 128), cdict=None, form='c
         # draw label
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(im, label, (max(1, xmin - 10), ymax + 10), font, 0.3, c, 1)  # <--------------------
+        # cv2.putText(im, label, (1, ymax+10), font, 0.3, c, 1)
 
 
 def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
@@ -81,7 +81,7 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
         _draw_box(
             images[i], bboxes[i],
             [mc.CLASS_NAMES[idx] for idx in labels[i]],
-            (255, 255, 255))
+            (0, 255, 255))
 
         # draw prediction
         det_bbox, det_prob, det_class = model.filter_prediction(
@@ -93,11 +93,16 @@ def _viz_prediction_result(model, images, bboxes, labels, batch_det_bbox,
         det_prob = [det_prob[idx] for idx in keep_idx]
         det_class = [det_class[idx] for idx in keep_idx]
 
+        cls2clr = {
+            'front_user': (128, 255, 0),
+            'other_user': (0, 128, 255)
+        }
+
         _draw_box(
             images[i], det_bbox,
             [mc.CLASS_NAMES[idx] + ': (%.2f)' % prob \
              for idx, prob in zip(det_class, det_prob)],
-            (0, 0, 0))
+            (255, 255, 0), cls2clr)
 
 
 def train():
@@ -163,16 +168,16 @@ def train():
 
         def _load_data(load_to_placeholder=True):
             # read batch input
-            image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-            bbox_per_batch, image_per_batch_viz = imdb.read_batch()
+            org_img_per_batch, image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
+            bbox_per_batch = imdb.read_batch()
 
             label_indices, bbox_indices, box_delta_values, mask_indices, box_values, \
                 = [], [], [], [], []
             aidx_set = set()
             num_discarded_labels = 0
             num_labels = 0
-            for i in range(len(label_per_batch)):
-                for j in range(len(label_per_batch[i])):
+            for i in range(len(label_per_batch)):  # batch_size
+                for j in range(len(label_per_batch[i])):  # number of annotations
                     num_labels += 1
                     if (i, aidx_per_batch[i][j]) not in aidx_set:
                         aidx_set.add((i, aidx_per_batch[i][j]))
@@ -203,6 +208,8 @@ def train():
                 box_input = model.box_input
                 labels = model.labels
 
+            # print(label_indices)
+            # assert len(mask_indices) == 20, 'incorrect mask_indices:{}'.format(mask_indices)
             feed_dict = {
                 image_input: image_per_batch,
                 input_mask: np.reshape(
@@ -222,7 +229,7 @@ def train():
                     [1.0] * len(label_indices)),
             }
 
-            return feed_dict, image_per_batch, label_per_batch, bbox_per_batch, image_per_batch_viz
+            return feed_dict, org_img_per_batch, image_per_batch, label_per_batch, bbox_per_batch
 
         def _enqueue(sess, coord):
             try:
@@ -233,11 +240,11 @@ def train():
                         print("added to the queue")
                 if mc.DEBUG_MODE:
                     print("Finished enqueue")
-            except Exception as e:
+            # except Exception, e:
+            except getopt.GetoptError as e:
                 coord.request_stop(e)
 
-        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
-                                                gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.45, allow_growth=True)))
+        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
 
         saver = tf.train.Saver(tf.global_variables())
         summary_op = tf.summary.merge_all()
@@ -254,7 +261,9 @@ def train():
             sess.run(init)
 
         summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
-        tf.train.write_graph(sess.graph_def, FLAGS.train_dir, "humancnt.pbtxt", as_text=True)
+
+        # init = tf.global_variables_initializer()
+        # sess.run(init)
 
         coord = tf.train.Coordinator()
 
@@ -280,26 +289,22 @@ def train():
             start_time = time.time()
 
             if step % FLAGS.summary_step == 0:
-                feed_dict, image_per_batch, label_per_batch, bbox_per_batch, image_per_batch_viz = \
+                feed_dict, org_img_per_batch, image_per_batch, label_per_batch, bbox_per_batch = \
                     _load_data(load_to_placeholder=False)
                 op_list = [
                     model.train_op, model.loss, summary_op, model.det_boxes,
                     model.det_probs, model.det_class, model.conf_loss,
                     model.bbox_loss, model.class_loss
                 ]
-                # feed_dict['model.zero_amt']=20
                 _, loss_value, summary_str, det_boxes, det_probs, det_class, \
                 conf_loss, bbox_loss, class_loss = sess.run(
                     op_list, feed_dict=feed_dict)
-                # op_list, feed_dict={feed_dict, model.zero_amt: 20})
 
-                # image_per_batch_rgb = np.int_(np.array(image_per_batch)*128)
                 _viz_prediction_result(
-                    model, image_per_batch_viz, bbox_per_batch, label_per_batch, det_boxes,
+                    model, org_img_per_batch, bbox_per_batch, label_per_batch, det_boxes,
                     det_class, det_probs)
-                # image_per_batch_rgb = [x * 128 for x in image_per_batch] # MUL 128 to each element in the list
-                # print(image_per_batch_rgb)
-                image_per_batch_rgb = bgr_to_rgb(image_per_batch_viz)
+                image_per_batch_rgb = org_img_per_batch  # + mc.BGR_MEANS # <---------------------
+                image_per_batch_rgb = bgr_to_rgb(image_per_batch_rgb)  # <---------------
                 viz_summary = sess.run(
                     model.viz_op, feed_dict={model.image_to_show: image_per_batch_rgb})
 
@@ -315,7 +320,6 @@ def train():
                         [model.train_op, model.loss, model.conf_loss, model.bbox_loss,
                          model.class_loss], options=run_options)
                 else:
-                    # feed_dict['model.zero_amt']=20
                     feed_dict, _, _, _, _ = _load_data(load_to_placeholder=False)
                     _, loss_value, conf_loss, bbox_loss, class_loss = sess.run(
                         [model.train_op, model.loss, model.conf_loss, model.bbox_loss,
@@ -341,6 +345,11 @@ def train():
             if step % FLAGS.checkpoint_step == 0 or (step + 1) == FLAGS.max_steps:
                 checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
                 saver.save(sess, checkpoint_path, global_step=step)
+        # except Exception, e:
+        #   coord.request_stop(e)
+        # finally:
+        #   coord.request_stop()
+        #   coord.join(threads)
 
 
 def main(argv=None):  # pylint: disable=unused-argument
