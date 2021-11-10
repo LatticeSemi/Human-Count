@@ -115,8 +115,8 @@ def main(input_node_name, output_node_name):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_node_name", type=str, required=True, default="", help="input node name")
-    parser.add_argument("--output_node_name", '--names-list', nargs='+', required=True, help="output node(s) name")
+    parser.add_argument("--input_node_name", type=str, required=True, default="batch", help="input node name")
+    parser.add_argument("--output_node_name", '--names-list', nargs='+', required=True,default='fire_o/convolution', help="output node(s) name")
     parser.add_argument("--ckpt_path", type=str, required=True, default="", help="Checkpoint path")
     args = parser.parse_args()
     os.chdir(os.path.dirname(os.path.abspath(args.ckpt_path)))
