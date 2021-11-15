@@ -9,7 +9,7 @@ import cv2
 class DataGenerator(keras.utils.Sequence):
     """Generates data for Keras"""
 
-    def __init__(self, directory, batch_size=512, dim=(112, 112), n_channels=1, shuffle=True, gen_type='train', num_person_per_epoch=10000):
+    def __init__(self, directory,validation_split=20, batch_size=512, dim=(112, 112), n_channels=1, shuffle=True, gen_type='train', num_person_per_epoch=10000):
         """Initialization"""
         self.gen_type = gen_type
         self.num_person_per_epoch = num_person_per_epoch
@@ -19,6 +19,13 @@ class DataGenerator(keras.utils.Sequence):
             self.paths1.extend(glob(path + "**"))
         self.paths = self.paths1
         self.classes = np.unique(np.asarray([path.split('/')[-2] for path in self.paths]))
+        if self.gen_type=='val':
+            index = len(self.classes)*-0.001*validation_split
+            self.classes = self.classes[index:]
+        elif self.gen_type=='train':
+            index = len(self.classes)*0.001*(100-validation_split)
+            self.classes = self.classes[:index]
+   
         self.index_mapping = {}
         for i, class_id in enumerate(self.classes):
             self.index_mapping[class_id] = i
