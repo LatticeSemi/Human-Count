@@ -31,11 +31,11 @@ def main(input_node_name, output_node_name):
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
         files = os.listdir(os.getcwd())
         meta_files = [s for s in files if s.endswith('.meta')]
-        meta_files = sorted(meta_files, key=latestckpt)
+        meta_files = sorted(meta_files, key=latestckpt)        
         ckptFile = os.path.basename(meta_files[-1])
         ckpt_with_extension, ckpt_metansion = os.path.splitext(ckptFile)
         currentFolder = os.path.dirname(os.path.realpath(__file__))
-        meta_path = os.path.join(currentFolder, ckptFile)
+        meta_path = os.path.join(os.getcwd(), ckptFile)
         # Restore the graph
         saver = tf.train.import_meta_graph(meta_path, clear_devices=True)
         graph_def = sess.graph_def
@@ -95,10 +95,10 @@ def main(input_node_name, output_node_name):
             elif ((node.op == 'Placeholder' or node.op == 'Reshape') and node.name == input_node_name):
                 setNodeAttribute(node, 'shape', [1, 160, 160, 1])
 
-        tf.train.write_graph(graphDef, currentFolder, 'model.pbtxt', as_text=True)
-        pbtxt_location = os.path.join(currentFolder, 'model.pbtxt')
-        input_checkpoint = os.path.join(currentFolder, ckpt_with_extension)
-        pb_location = os.path.join(currentFolder, 'model_frozenforInference.pb')
+        tf.train.write_graph(graphDef, os.getcwd(), 'model.pbtxt', as_text=True)
+        pbtxt_location = os.path.join(os.getcwd(), 'model.pbtxt')
+        input_checkpoint = os.path.join(os.getcwd(), ckpt_with_extension)
+        pb_location = os.path.join(os.getcwd(), 'model_frozenforInference.pb')
         freeze_graph.freeze_graph(
             input_graph=pbtxt_location,
             input_saver='',
@@ -115,9 +115,10 @@ def main(input_node_name, output_node_name):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_node_name", type=str, required=True, default="batch", help="input node name")
-    parser.add_argument("--output_node_name", '--names-list', nargs='+', required=True,default='fire_o/convolution', help="output node(s) name")
-    parser.add_argument("--ckpt_path", type=str, required=True, default="", help="Checkpoint path")
+    parser.add_argument("--input_node_name", type=str, required=False, default="batch", help="input node name")
+    parser.add_argument("--output_node_name", '--names-list', nargs='+', required=False,default='fire_o/convolution', help="output node(s) name")
+    parser.add_argument("--ckpt_dir", type=str, required=True, default="", help="Checkpoint path")
     args = parser.parse_args()
-    os.chdir(os.path.dirname(os.path.abspath(args.ckpt_path)))
+    os.chdir((os.path.abspath(args.ckpt_dir+"/")))
     main(args.input_node_name, args.output_node_name)
+
