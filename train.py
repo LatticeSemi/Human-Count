@@ -8,6 +8,7 @@ from tensorflow.python.keras.optimizer_v2.adam import *
 from config.create_config import *
 from model.data_generator import DataGenerator
 from model.model import *
+import argparse         
 
 
 def set_memory_growth():
@@ -50,8 +51,8 @@ class Training:
                                     loss=tfa.losses.TripletSemiHardLoss())
         print(self.face_rec_model.summary())
 
-        self.tripplet_data_generator = DataGenerator(self.cfg.dataset_path,self.cfg.validation_split,batch_size=self.cfg.BATCHSIZE,dim=(self.cfg.IMAGE_HEIGHT,self.cfg.IMAGE_WIDTH),self.cfg.gen_type='train')
-        self.val_data_generator = DataGenerator(self.cfg.dataset_path,self.cfg.validation_split,batch_size=self.cfg.BATCHSIZE,dim=(self.cfg.IMAGE_HEIGHT,self.cfg.IMAGE_WIDTHgen_type='val')
+        self.tripplet_data_generator = DataGenerator(self.cfg.dataset_path,self.cfg.validation_split,batch_size=self.cfg.BATCHSIZE,dim=(self.cfg.IMAGE_HEIGHT,self.cfg.IMAGE_WIDTH),gen_type='train')
+        self.val_data_generator = DataGenerator(self.cfg.dataset_path,self.cfg.validation_split,batch_size=self.cfg.BATCHSIZE,dim=(self.cfg.IMAGE_HEIGHT,self.cfg.IMAGE_WIDTH),gen_type='val')
         self.init_epoch = 0
         self.create_new_log_dir_structure()
         self.callbacks = []
@@ -128,21 +129,23 @@ class Training:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Short sample app')
+    parser = argparse.ArgumentParser(description='Keras FaceId training')
 
-    parser.add_argument('dataset_path',required=True,type=str,description="Dataset Path")
-    parser.add_argument('epochs',required=False,type=int,default=300,description="Number of Epochs")
-    parser.add_argument('num_features',required=False,type=int,default=256,description="Number of embedding features")
-    parser.add_argument('batch_size',required=False,type=int,default=256,description="Batch Size")
-    parser.add_argument('validation_split',required=False,type=int,default=20,description="Validation split in percentage")
-    parser.add_argument('checkpoint_dir',required=True,type=str,default='logs/',description="Checkpoint Save Directory")
+    parser.add_argument('--dataset_path',type=str,help="Dataset Path",required=True)
+    parser.add_argument('--epochs',required=False,type=int,default=300,help="Number of Epochs")
+    parser.add_argument('--num_features',required=False,type=int,default=256,help="Number of embedding features")
+    parser.add_argument('--batch_size',required=False,type=int,default=256,help="Batch Size")
+    parser.add_argument('--validation_split',required=False,type=int,default=20,help="Validation split in percentage")
+    parser.add_argument('--logdir',type=str,default='logs/',help="Checkpoint Save Directory",required=True)
+    parser.add_argument('--gpu',type=int,default=0,help="Checkpoint Save Directory",required=True)
     args = parser.parse_args()
     cfg = get_config()
     cfg.dataset_path= args.dataset_path
     cfg.EPOCHS= args.epochs
-    cfg.FEATURES = args.features
+    cfg.FEATURES = args.num_features
     cfg.BATCHSIZE=args.batch_size
     cfg.validation_split = args.validation_split
-    cfg.LOG_PATH=args.checkpoint_dir
+    cfg.LOG_PATH=args.logdir
+    cfg.GPUID=args.gpu
     
     Training(cfg)

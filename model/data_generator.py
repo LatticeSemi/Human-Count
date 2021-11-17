@@ -13,17 +13,17 @@ class DataGenerator(keras.utils.Sequence):
         """Initialization"""
         self.gen_type = gen_type
         self.num_person_per_epoch = num_person_per_epoch
-        self.paths = glob(directory + "**/")
+        self.paths = glob(directory + "/**/")
         self.paths1 = []
         for path in self.paths[:self.num_person_per_epoch]:
             self.paths1.extend(glob(path + "**"))
         self.paths = self.paths1
         self.classes = np.unique(np.asarray([path.split('/')[-2] for path in self.paths]))
         if self.gen_type=='val':
-            index = len(self.classes)*-0.001*validation_split
+            index = int(len(self.classes)*-0.001*validation_split)
             self.classes = self.classes[index:]
         elif self.gen_type=='train':
-            index = len(self.classes)*0.001*(100-validation_split)
+            index = int(len(self.classes)*0.001*(100-validation_split))
             self.classes = self.classes[:index]
    
         self.index_mapping = {}
@@ -99,3 +99,4 @@ class DataGenerator(keras.utils.Sequence):
             # Store class
             y[i] = self.index_mapping[self.paths[ID].split('/')[-2]]
         return X, y
+
