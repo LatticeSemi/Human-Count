@@ -12,6 +12,7 @@ from tensorflow.python.tools.optimize_for_inference_lib import *
 
 import binary_ops
 from binary_ops import *
+from glob import glob 
 
 
 def freeze_session(session, keep_var_names=None, output_names=None, clear_devices=True):
@@ -110,5 +111,7 @@ if __name__ == "__main__":
     parser.add_argument("-k", "--kerasmodel", required=True, help="Input Model Path")
     args = parser.parse_args()
     modelAbsPath = os.path.abspath(args.kerasmodel)
-    output_file = modelAbsPath.replace('.h5', '.pb')
-    convert(output_file, modelAbsPath)
+    h5model = glob(modelAbsPath+"/**.h5")[0]
+    
+    output_file = h5model.replace('.h5', '.pb')
+    convert(output_file, h5model)
