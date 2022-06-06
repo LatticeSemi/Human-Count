@@ -185,13 +185,7 @@ class MyConstraints(tf.keras.constraints.Constraint):
         return {"name":self.name}
 
 
-
-class Keras_nn_loss(tf.keras.losses.Loss):
-        def call(self, y_true, y_pred):
-            return tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_true, logits=y_pred))
-
-
-#@tf.keras.utils.register_keras_serializable()
+# @tf.keras.utils.register_keras_serializable()
 class CastToFloat32(preprocessing.PreprocessingLayer):
     def get_config(self):
         return super().get_config()
@@ -202,4 +196,5 @@ class CastToFloat32(preprocessing.PreprocessingLayer):
         if inputs.dtype == tf.string:
             return tf.strings.to_number(inputs, tf.float32)
         return tf.cast(inputs, tf.float32)
+
 
